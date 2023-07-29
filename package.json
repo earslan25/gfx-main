@@ -1,0 +1,32 @@
+{
+  "name": "npm-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "live-server --cors",
+    "install-dependencies": "npm i",
+    "build": "webpack --config webpack.config.js",
+    "start": "npm run install-dependencies && npm run serve"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^20.2.5",
+    "@webgpu/types": "^0.1.32",
+    "gl-matrix": "^3.4.3",
+    "http-server": "^14.1.1",
+    "jquery": "^3.7.0",
+    "node": "^18.16.0",
+    "ts-loader": "^9.2.9",
+    "ts-shader-loader": "^2.0.2",
+    "typescript": "^4.6.4",
+    "webpack": "^5.72.0",
+    "webpack-cli": "^4.9.2"
+  },
+  "devDependencies": {
+    "@types/jquery": "^3.5.16"
+  }
+}
