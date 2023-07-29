@@ -40,11 +40,7 @@ export class WebGPURenderer {
     format! : GPUTextureFormat
 
     pipeline! : GPURenderPipeline
-    // pipelineLayout! : GPUPipelineLayout
     bindGroupLayouts! : GPUBindGroupLayout[]
-
-    // vertexState! : GPUVertexState
-    // fragmentState! : GPUFragmentState
 
     vertShaderModules : { [key : string] : GPUShaderModule } = {}
     fragShaderModules : { [key : string] : GPUShaderModule } = {}
@@ -53,13 +49,11 @@ export class WebGPURenderer {
     frameBindGroup! : GPUBindGroup
 
     materialGroupLayout! : GPUBindGroupLayout
-    // textureGroupLayout! : GPUBindGroupLayout
 
     lightGroupLayout! : GPUBindGroupLayout
     lightBindGroup! : GPUBindGroup
 
     cameraUniformBuffer! : GPUBuffer
-    // modelBuffer3! : GPUBuffer
     objectModelBuffer! : GPUBuffer
 
     lightBuffer! : GPUBuffer
@@ -136,11 +130,6 @@ export class WebGPURenderer {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
         })
 
-        // this.modelBuffer3 = this.device.createBuffer({
-        //     size: 4 * 9 * 4096,
-        //     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-        // })
-
         this.lightBuffer = this.device.createBuffer({
             size: 4 * 20 * 512 + 4 * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -210,14 +199,6 @@ export class WebGPURenderer {
                         hasDynamicOffset: false
                     }
                 },
-                // {
-                //     binding: 2,
-                //     visibility: GPUShaderStage.VERTEX,
-                //     buffer: {
-                //         type: "read-only-storage",
-                //         hasDynamicOffset: false
-                //     }
-                // }
             ]
         })
 
@@ -252,21 +233,6 @@ export class WebGPURenderer {
                 }
             ]
         })
-
-        // this.textureGroupLayout = this.device.createBindGroupLayout({
-        //     entries: [
-        //         {
-        //             binding: 0,
-        //             visibility: GPUShaderStage.FRAGMENT,
-        //             sampler: {}
-        //         },
-        //         {
-        //             binding: 1,
-        //             visibility: GPUShaderStage.FRAGMENT,
-        //             texture: {}
-        //         }
-        //     ]
-        // })
 
     }
 
@@ -308,27 +274,6 @@ export class WebGPURenderer {
             })
         }
 
-        // this.vertexState = {
-        //     module: this.device.createShaderModule({
-        //         code: vertShader,
-        //     }),
-        //     entryPoint: 'vs_main',
-        //     buffers: [],
-        // }
-        //
-        // // init each shader module for each possible material?
-        // this.fragmentState = {
-        //     module: this.device.createShaderModule({
-        //         code: fragShader,
-        //     }),
-        //     entryPoint: 'fs_phong',
-        //     targets: [
-        //         {
-        //             format: this.format
-        //         }
-        //     ]
-        // }
-
     }
 
     async makeBindGroups() {
@@ -348,12 +293,6 @@ export class WebGPURenderer {
                         buffer: this.objectModelBuffer
                     }
                 },
-                // {
-                //     binding: 2,
-                //     resource: {
-                //         buffer: this.modelBuffer3
-                //     }
-                // }
             ]
         })
 
@@ -384,8 +323,6 @@ export class WebGPURenderer {
             bindGroupLayouts: groupLayouts,
         })
 
-        // create shader module for each material type? or just use one shader module for all materials?
-        // change entry point only? textures?
         const vertexState : GPUVertexState = {
             module: this.vertShaderModules['vs_main'],
             entryPoint: 'vs_main',
@@ -417,7 +354,6 @@ export class WebGPURenderer {
 
     makeMaterialBindGroup(material : Material, sceneGlobals : SceneGlobalParameters) {
 
-        // will make different shader for different materials
         const materialData : Float32Array = material.getMaterialData(sceneGlobals)
 
         const materialBuffer : GPUBuffer = this.device.createBuffer({
@@ -472,7 +408,6 @@ export class WebGPURenderer {
         new Uint16Array(indexBuffer.getMappedRange()).set(indexUint16Array)
         indexBuffer.unmap()
 
-        // normal material has no data, handle that
         let materialBindGroup : GPUBindGroup
 
         const groupLayouts : GPUBindGroupLayout[] = [...this.bindGroupLayouts]
@@ -511,14 +446,6 @@ export class WebGPURenderer {
             renderPass.draw(bufferObject.instanceCount * 3, 1,
                 0, objectsDrawn)
         }
-        // 9 points of position is 1 triangle...
-        // renderPass.draw(3 * bufferObject.instanceCount, 1, 0, objectsDrawn)
-        // or instance count should be bufferObject.instanceCount
-
-        // here, I am using instance count as 1 because I am not grouping meshes
-        // if I were to draw 2 triangles with only 1 mesh, I would need to use 2 instances,
-        // but I go 1 by 1 in the loop instead of using 1 mesh with multiple transformations
-        // could be optimized in v2
 
         return ++objectsDrawn
 
@@ -558,7 +485,6 @@ export class WebGPURenderer {
         this.device.queue.writeBuffer(this.cameraUniformBuffer, 0, <ArrayBuffer>viewProjectionMatrix)
 
         const modelBuffer : Float32Array = new Float32Array(16 * 2048)
-        // remove modelbuffer3 beacuse of alignment issues
         const modelBuffer3 : Float32Array = new Float32Array(9 * 2048)
         const {
             offset,
@@ -566,8 +492,6 @@ export class WebGPURenderer {
         } = scene.fillModelBuffers(modelBuffer, 0, modelBuffer3, 0)
 
         this.device.queue.writeBuffer(this.objectModelBuffer, 0, modelBuffer, 0, offset)
-
-        // this.device.queue.writeBuffer(this.modelBuffer3, 0, modelBuffer3, 0, offset3)
 
         const wsCameraPosition : vec3 = scene.camera.getWorldPosition()
         this.device.queue.writeBuffer(this.wsCameraPositionUniformBuffer, 0, <ArrayBuffer>wsCameraPosition)
@@ -617,12 +541,10 @@ export class WebGPURenderer {
         scene.children.forEach((child : MainObject) => {
             // @ts-ignore
             if (child.extendsMesh) {
-                // console.log("rendering mesh " + objectsDrawn)
                 objectsDrawn = this.renderMesh(<Mesh>child, renderPass, objectsDrawn, sceneGlobals)
             }
             // @ts-ignore
             else if (child.extendsParentOBject) {
-                // console.log("rendering parent")
                 objectsDrawn = this.renderParentObject(<ParentObject>child, renderPass, objectsDrawn, sceneGlobals)
             }
         })
