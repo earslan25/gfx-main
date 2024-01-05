@@ -8,16 +8,17 @@ export abstract class ParentObject extends MainObject {
     children : MainObject[] = []
     meshCount : number = 0
 
-    constructor() {
+    protected constructor() {
 
         super()
 
     }
 
     update() {
-        this.updateModel()
-        this.updateVectorsFromModel()
-
+        if (this.transformed) {
+            this.updateModel()
+            this.updateVectorsFromModel()
+        }
         this.children.forEach(child => {
             child.update()
         })
@@ -29,7 +30,8 @@ export abstract class ParentObject extends MainObject {
         }
         child.parent = this
         this.children.push(child)
-        if (child.type == "Mesh") {
+        // @ts-ignore
+        if (child.extendsMesh) {
             this.meshCount++
         }
     }
@@ -39,20 +41,18 @@ export abstract class ParentObject extends MainObject {
         this.children.splice(this.children.indexOf(child), 1)
     }
 
-    fillModelBuffers(buffer : Float32Array, firstOffset : number,
-                    buffer3x3 : Float32Array, offset3x3 : number) {
-
+    fillModelBuffers(buffer : Float32Array, firstOffset : number) {
+        let filled = 0
         this.children.forEach(child => {
-            const {
-                offset,
-                offset3
-            } = child.fillModelBuffers(buffer, firstOffset, buffer3x3, offset3x3)
+            const offset = child.fillModelBuffers(buffer, firstOffset)
 
             firstOffset += offset
-            offset3x3 += offset3
+            filled += offset
         })
 
-        return { offset: firstOffset, offset3: offset3x3 }
+        this.transformed = false
+
+        return filled
     }
 
 }

@@ -8,13 +8,18 @@ import {PhongMaterial} from "./Materials/PhongMaterial"
 import {PointLight} from "./Lights/PointLight"
 import {Plane} from "./Geometries/Plane";
 import {SimpleMaterial} from "./Materials/SimpleMaterial";
+import {BufferObject} from "./Objects/BufferObject";
+import {ParentObject} from "./Objects/ParentObject";
+import {Group} from "./Objects/Group";
+import {NormalMaterial} from "./Materials/NormalMaterial";
 
 const canvas = <HTMLCanvasElement> document.getElementById("gfx-main")
 
 const renderer = new WebGPURenderer(canvas)
+const initializing = renderer.Initialize()
 
 const camera = new FrustumViewCamera(45, canvas.width / canvas.height, 0.1, 1000)
-camera.position = ([0, 5, 20])
+camera.position = ([0, 0, 20])
 camera.lookAt([0, -5, 0])
 
 const scene = new Scene(camera)
@@ -30,23 +35,53 @@ planeMesh.translateY(-5)
 planeMesh.rotateX(-Math.PI / 2)
 scene.addChild(planeMesh)
 
+const spheres = new Group()
 const sphere = new Sphere(1, 32, 32)
 const simpleMaterial = new SimpleMaterial(new Color(1, 0, 0))
-const sphereMesh : Mesh = new Mesh(sphere, simpleMaterial)
-sphereMesh.translateX(4)
-scene.addChild(sphereMesh)
 
-let translate = -0.05
+for (let i = 0; i < 4; i++) {
+    // const sphere = new Sphere(1, 32, 32)
+    // const simpleMaterial = new SimpleMaterial(new Color(1, 0, 0))
+    const sphereMesh = new Mesh(sphere, simpleMaterial)
+    sphereMesh.translateX(Math.random() * 10 - 5)
+    spheres.addChild(sphereMesh)
+    // scene.addChild(sphereMesh)
+}
+
+scene.addChild(spheres)
+
+let frameCount = 0
+let lastTime = 0
+
+const calculateFPS = () => {
+    const currentTime = performance.now()
+    const elapsed = currentTime - lastTime
+    const fps = Math.round(1000 / elapsed)
+    lastTime = currentTime
+
+    return fps
+}
+
+let translate = -0.1
+spheres.translateY(translate)
+
 const animation = () => {
-    if (sphereMesh.position[1] > 0 || sphereMesh.position[1] < -4.2) {
+    if (spheres.children[0].position[1] > 0 || spheres.children[0].position[1] < -4) {
         translate = -translate
+        spheres.translateY(translate * 2)
     }
-    sphereMesh.translateY(translate)
+    spheres.transformed = true
+
+    let fps
+    fps = calculateFPS()
+    console.log(`FPS: ${fps}`)
 
     renderer.render(scene)
+    frameCount++
+
     requestAnimationFrame(animation)
 }
 
-renderer.Initialize().then(() => {
+initializing.then(() => {
     animation()
 })

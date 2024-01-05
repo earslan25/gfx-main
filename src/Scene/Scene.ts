@@ -69,8 +69,12 @@ export class Scene extends ParentObject {
     fillLightBuffer(lightBuffer : Float32Array) : void {
         let offset : number = 0
         this.lights.forEach(light => {
-            const lightData : LightSource = light.getLightData()
-            this.fillLightData(lightBuffer, offset, lightData)
+            if (light.transformed) {
+                const lightData : LightSource = light.getLightData()
+                this.fillLightData(lightBuffer, offset, lightData)
+
+                this.transformed = false
+            }
             offset += 20
         })
     }

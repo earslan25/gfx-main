@@ -1,9 +1,9 @@
-import fragPhongShader from "./Shaders/fragPhong.wgsl"
-import fragPhongTextureShader from "./Shaders/fragPhongTexture.wgsl"
-import fragNormalShader from "./Shaders/fragNormal.wgsl"
-import fragSimpleShader from "./Shaders/fragSimple.wgsl"
-import fragSimpleTextureShader from "./Shaders/fragSimpleTexture.wgsl"
-import vertShader from "./Shaders/vert.wgsl"
+import fragPhongShader from "./Shaders/WebGPUShaders/fragPhong.wgsl"
+import fragPhongTextureShader from "./Shaders/WebGPUShaders/fragPhongTexture.wgsl"
+import fragNormalShader from "./Shaders/WebGPUShaders/fragNormal.wgsl"
+import fragSimpleShader from "./Shaders/WebGPUShaders/fragSimple.wgsl"
+import fragSimpleTextureShader from "./Shaders/WebGPUShaders/fragSimpleTexture.wgsl"
+import vertShader from "./Shaders/WebGPUShaders/vert.wgsl"
 import { Mesh } from "../Objects/Mesh"
 import { Scene } from "../Scene/Scene"
 import { mat4, vec3 } from "gl-matrix"
@@ -39,7 +39,7 @@ export class WebGPURenderer {
     context! : GPUCanvasContext
     format! : GPUTextureFormat
 
-    pipeline! : GPURenderPipeline
+    pipelines : { [key : number] : GPURenderPipeline } = {}
     bindGroupLayouts! : GPUBindGroupLayout[]
 
     vertShaderModules : { [key : string] : GPUShaderModule } = {}
@@ -48,6 +48,7 @@ export class WebGPURenderer {
     frameGroupLayout! : GPUBindGroupLayout
     frameBindGroup! : GPUBindGroup
 
+    materialBindGroups : { [key : string] : GPUBindGroup } = {}
     materialGroupLayout! : GPUBindGroupLayout
 
     lightGroupLayout! : GPUBindGroupLayout
@@ -55,8 +56,10 @@ export class WebGPURenderer {
 
     cameraUniformBuffer! : GPUBuffer
     objectModelBuffer! : GPUBuffer
+    modelBuffer : Float32Array
 
     lightBuffer! : GPUBuffer
+    lightSourceBuffer : Float32Array
     wsCameraPositionUniformBuffer! : GPUBuffer
 
     depthStencilState! : GPUDepthStencilState
@@ -79,6 +82,9 @@ export class WebGPURenderer {
         this.useAlphaPremultiplied = alphaPremultiplied
 
         this.backgroundColor = backgroundColor
+
+        this.modelBuffer = new Float32Array(16 * 4096)
+        this.lightSourceBuffer = new Float32Array(20 * 512)
 
     }
 
@@ -236,6 +242,7 @@ export class WebGPURenderer {
 
     }
 
+    // currently compiles all shaders for all materials
     async makePipelineData() {
 
         this.bindGroupLayouts = [this.frameGroupLayout, this.lightGroupLayout]
@@ -338,7 +345,7 @@ export class WebGPURenderer {
             ]
         }
 
-        this.pipeline = this.device.createRenderPipeline({
+        return this.device.createRenderPipeline({
             layout: pipelineLayout,
             depthStencil: this.useDepthBuffer ? this.depthStencilState : undefined,
             multisample: this.useAntialiasing ? {count: this.sampleCount} : undefined,
@@ -388,34 +395,29 @@ export class WebGPURenderer {
         }
 
         const bufferObject : BufferObject = mesh.geometry
-        bufferObject.updateData()
 
-        const vertexBuffer : GPUBuffer = this.device.createBuffer(bufferObject.vertexDescriptor)
-
-        const vertexArrayBuffer : ArrayBuffer = new ArrayBuffer(bufferObject.vertexDescriptor.size)
-        const vertexFloat32Array : Float32Array = new Float32Array(vertexArrayBuffer)
-
-        const indexBuffer : GPUBuffer = this.device.createBuffer(bufferObject.indexDescriptor)
-
-        const indexArrayBuffer : ArrayBuffer = new ArrayBuffer(bufferObject.indexDescriptor.size)
-        const indexUint16Array : Uint16Array = new Uint16Array(indexArrayBuffer)
-
-        bufferObject.fillBuffer(vertexFloat32Array, indexUint16Array)
-
-        new Float32Array(vertexBuffer.getMappedRange()).set(vertexFloat32Array)
-        vertexBuffer.unmap()
-
-        new Uint16Array(indexBuffer.getMappedRange()).set(indexUint16Array)
-        indexBuffer.unmap()
+        bufferObject.updateVertexData(this.device)
+        const vertexBuffer : GPUBuffer = bufferObject.vertexBuffer
+        const indexBuffer : GPUBuffer = bufferObject.indexBuffer
 
         let materialBindGroup : GPUBindGroup
+        let pipeline : GPURenderPipeline
+
+        const id : number = bufferObject.id
+        const preprocessedPl : boolean = this.pipelines[id] !== undefined
+        const preprocessedMat : boolean = this.materialBindGroups[material.shaderType] !== undefined
 
         const groupLayouts : GPUBindGroupLayout[] = [...this.bindGroupLayouts]
 
         // @ts-ignore
         if (!material.extendsNormalMaterial) {
-            materialBindGroup = this.makeMaterialBindGroup(material, sceneGlobals)
-            groupLayouts.push(this.materialGroupLayout)
+            if (!preprocessedMat) {
+                this.materialBindGroups[material.shaderType] = this.makeMaterialBindGroup(material, sceneGlobals)
+            }
+            if (!preprocessedPl) {
+                groupLayouts.push(this.materialGroupLayout)
+            }
+            materialBindGroup = this.materialBindGroups[material.shaderType]
             renderPass.setBindGroup(2, materialBindGroup)
         }
 
@@ -426,15 +428,22 @@ export class WebGPURenderer {
                 texturedMaterial.mapLoaded = true
                 texturedMaterial.shaderType += "_texture"
             }
-            groupLayouts.push(texturedMaterial.map.textureGroupLayout)
+            if (!preprocessedPl) {
+                groupLayouts.push(texturedMaterial.map.textureGroupLayout)
+            }
             renderPass.setBindGroup(3, texturedMaterial.map.textureBindGroup)
         }
 
-        this.makePipeline(bufferObject.vertexLayout, bufferObject.cullMode, material, groupLayouts)
+        if (!preprocessedPl) {
+            pipeline = this.makePipeline(
+                bufferObject.vertexLayout, bufferObject.cullMode, material, groupLayouts)
+            this.pipelines[id] = pipeline
+        }
+        else {
+            pipeline = this.pipelines[id]
+        }
 
-        // pipeline could be local var
-        // caching can be done for many things?
-        renderPass.setPipeline(this.pipeline)
+        renderPass.setPipeline(pipeline)
         renderPass.setVertexBuffer(0, vertexBuffer)
 
         if (bufferObject.indexData.length > 0) {
@@ -447,7 +456,7 @@ export class WebGPURenderer {
                 0, objectsDrawn)
         }
 
-        return ++objectsDrawn
+        return 1
 
     }
 
@@ -459,15 +468,17 @@ export class WebGPURenderer {
         parentObject.children.forEach((child : MainObject) => {
             // @ts-ignore
             if (child.extendsParentObject) {
-                childrenDrawn += this.renderParentObject(<ParentObject>child, renderPass, childrenDrawn, sceneGlobals)
+                childrenDrawn += this.renderParentObject(<ParentObject>child, renderPass,
+                    objectsDrawn + childrenDrawn, sceneGlobals)
             }
             // @ts-ignore
             else if (child.extendsMesh) {
-                childrenDrawn += this.renderMesh(<Mesh>child, renderPass, childrenDrawn, sceneGlobals)
+                childrenDrawn += this.renderMesh(<Mesh>child, renderPass,
+                    objectsDrawn + childrenDrawn, sceneGlobals)
             }
         })
 
-        return objectsDrawn + childrenDrawn
+        return childrenDrawn
 
     }
 
@@ -484,26 +495,20 @@ export class WebGPURenderer {
 
         this.device.queue.writeBuffer(this.cameraUniformBuffer, 0, <ArrayBuffer>viewProjectionMatrix)
 
-        const modelBuffer : Float32Array = new Float32Array(16 * 2048)
-        const modelBuffer3 : Float32Array = new Float32Array(9 * 2048)
-        const {
-            offset,
-            offset3
-        } = scene.fillModelBuffers(modelBuffer, 0, modelBuffer3, 0)
+        const offset = scene.fillModelBuffers(this.modelBuffer, 0)
 
-        this.device.queue.writeBuffer(this.objectModelBuffer, 0, modelBuffer, 0, offset)
+        this.device.queue.writeBuffer(this.objectModelBuffer, 0, this.modelBuffer, 0, offset)
 
         const wsCameraPosition : vec3 = scene.camera.getWorldPosition()
         this.device.queue.writeBuffer(this.wsCameraPositionUniformBuffer, 0, <ArrayBuffer>wsCameraPosition)
 
-        const lightBuffer : Float32Array = new Float32Array(20 * 512)
-        scene.fillLightBuffer(lightBuffer)
+        scene.fillLightBuffer(this.lightSourceBuffer)
 
         const lightCountBuffer : Uint32Array = new Uint32Array(4)
         lightCountBuffer[0] = scene.lights.length
 
         this.device.queue.writeBuffer(this.lightBuffer, 0, lightCountBuffer)
-        this.device.queue.writeBuffer(this.lightBuffer, 16, lightBuffer)
+        this.device.queue.writeBuffer(this.lightBuffer, 16, this.lightSourceBuffer)
 
         const sceneGlobals : SceneGlobalParameters = scene.getGlobalParameters()
 
@@ -536,18 +541,8 @@ export class WebGPURenderer {
         renderPass.setBindGroup(0, this.frameBindGroup)
         renderPass.setBindGroup(1, this.lightBindGroup)
 
-        let objectsDrawn : number = 0
-
-        scene.children.forEach((child : MainObject) => {
-            // @ts-ignore
-            if (child.extendsMesh) {
-                objectsDrawn = this.renderMesh(<Mesh>child, renderPass, objectsDrawn, sceneGlobals)
-            }
-            // @ts-ignore
-            else if (child.extendsParentOBject) {
-                objectsDrawn = this.renderParentObject(<ParentObject>child, renderPass, objectsDrawn, sceneGlobals)
-            }
-        })
+        const objectsDrawn : number = this.renderParentObject(scene, renderPass, 0, sceneGlobals)
+        console.log("Objects drawn: " + objectsDrawn)
 
         renderPass.end()
 

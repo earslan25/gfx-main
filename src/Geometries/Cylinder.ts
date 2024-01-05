@@ -43,7 +43,7 @@ export class Cylinder extends BufferObject {
 
         this.generateSide()
         this.generateCaps()
-        this.updateData()
+        // this.updateData()
 
     }
 

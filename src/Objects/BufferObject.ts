@@ -1,14 +1,27 @@
 import { mat4, vec2, vec3 } from "gl-matrix"
 
+
+let _id : number = 0
+
 export class BufferObject {
 
     extendsBufferObjects : boolean = true
     type : string = "BufferObject"
+    id : number
 
     byteLength : number
+    // for regular renderer
     vertexDescriptor : GPUBufferDescriptor
+    vertexBuffer : GPUBuffer
     vertexLayout! : GPUVertexBufferLayout
+
+    // for raytracer renderer
+    triangleDescriptor : GPUBufferDescriptor
+    triangleBuffer : GPUBuffer
+
     indexDescriptor : GPUBufferDescriptor
+    indexBuffer : GPUBuffer
+
     stride : number = 4
     format3 : GPUVertexFormat = "float32x3"
     format2 : GPUVertexFormat = "float32x2"
@@ -39,6 +52,8 @@ export class BufferObject {
 
     constructor(cullMode : GPUCullMode = "none") {
 
+        this.id = _id++
+
         this.byteLength = 0
 
         this.vertexDescriptor = {
@@ -46,12 +61,21 @@ export class BufferObject {
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
             mappedAtCreation: true
         }
+        this.vertexBuffer = null!
 
         this.indexDescriptor = {
             size: 0,
             usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
             mappedAtCreation: true
         }
+        this.indexBuffer = null!
+
+        this.triangleDescriptor = {
+            size: 0,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            mappedAtCreation: true
+        }
+        this.triangleBuffer = null!
 
         this.updated = false
 
@@ -108,16 +132,20 @@ export class BufferObject {
         }
     }
 
-    setByteLength(byteLength : number) {
+    setByteLength(vertexLength : number, triangleLength : number) {
+        const sizeCoeff : number = this.stride * this.instanceCount * 3
+        const byteLength : number = vertexLength * sizeCoeff
         this.byteLength = byteLength
         this.vertexDescriptor.size = byteLength
-        const ar : Uint16Array = new Uint16Array(this.indexData)
+        this.triangleDescriptor.size = triangleLength * sizeCoeff
         this.indexDescriptor.size = this.indexData.length * 2
         this.indexDescriptor.size += this.indexDescriptor.size % 4
     }
 
     setVertexLayout() {
+        // metadata is partially used depending on the renderer, but this sets up everything
         let filledData : number = 0
+        let triangleOffset : number = 0
         let location : number = 0
         const attributes : GPUVertexAttribute[] = []
 
@@ -127,6 +155,7 @@ export class BufferObject {
             offset: 0
         })
         filledData += 3
+        triangleOffset++
         location++
 
         attributes.push({
@@ -135,6 +164,7 @@ export class BufferObject {
             offset: filledData * this.stride
         })
         filledData += 3
+        triangleOffset++
         location++
 
         if (this.bufferData.normal.length == 0) {
@@ -154,14 +184,17 @@ export class BufferObject {
             }
         }
 
-        if (this.bufferData.uv.length > 0) {
-            attributes.push({
-                shaderLocation: location,
-                format: this.format2,
-                offset: filledData * this.stride
-            })
-            filledData += 2
-        }
+        // not checking if uv is empty, if it is, it will be filled with 0
+        // this is to avoid shader errors or multiple shaders for different objects
+        // if (this.bufferData.uv.length > 0) {
+        attributes.push({
+            shaderLocation: location,
+            format: this.format2,
+            offset: filledData * this.stride
+        })
+        filledData += 2
+        triangleOffset += 2
+        // }
 
         this.vertexLayout = {
             arrayStride: filledData * this.stride,
@@ -169,25 +202,64 @@ export class BufferObject {
         }
 
         // based on float 32 stride
-        this.setByteLength(filledData * this.stride * this.instanceCount * 3)
+        this.setByteLength(filledData, triangleOffset)
     }
 
     updateData() {
-        if (this.updated) {
-            if (this.instanceCount == 0) {
-                this.instanceCount = this.bufferData.position.length / 9
+        if (this.indexDescriptor.size == 0) {
+            this.instanceCount = this.bufferData.position.length / 9
+        }
+        else {
+            this.instanceCount = this.indexData.length / 3
+        }
+
+        this.setVertexLayout()
+    }
+
+    updateVertexData(device : GPUDevice, forceUpdate : boolean = false){
+        if (this.updated || forceUpdate) {
+            const prevByteLength : number = this.byteLength
+            const prevIndexLength : number = this.indexDescriptor.size
+            this.updateData()
+
+            if (this.vertexBuffer == null || this.byteLength != prevByteLength) {
+                this.vertexBuffer = device.createBuffer(this.vertexDescriptor)
+
+                // delete triangle buffer if it exists
+                if (this.triangleBuffer != null) {
+                    this.triangleBuffer.destroy()
+                    this.triangleBuffer = null!
+                }
             }
-            else {
-                this.instanceCount = this.indexData.length / 3
+            if (this.indexBuffer == null || this.indexDescriptor.size != prevIndexLength
+                && this.indexDescriptor.size > 0) {
+                this.indexBuffer = device.createBuffer(this.indexDescriptor)
             }
 
-            this.setVertexLayout()
+            const vertexArrayBuffer : ArrayBuffer = new ArrayBuffer(this.vertexDescriptor.size)
+            const vertexFloat32Array : Float32Array = new Float32Array(vertexArrayBuffer)
+
+            if (this.indexDescriptor.size > 0) {
+                const indexArrayBuffer : ArrayBuffer = new ArrayBuffer(this.indexDescriptor.size)
+                const indexUint16Array : Uint16Array = new Uint16Array(indexArrayBuffer)
+
+                this.fillBuffer(vertexFloat32Array, indexUint16Array)
+
+                new Uint16Array(this.indexBuffer.getMappedRange()).set(indexUint16Array)
+                this.indexBuffer.unmap()
+            }
+            else {
+                this.fillBuffer(vertexFloat32Array, null)
+            }
+
+            new Float32Array(this.vertexBuffer.getMappedRange()).set(vertexFloat32Array)
+            this.vertexBuffer.unmap()
 
             this.updated = false
         }
     }
 
-    fillBuffer(vertexBuffer : Float32Array, indexBuffer : Uint16Array) {
+    fillBuffer(vertexBuffer : Float32Array, indexBuffer : Uint16Array | null) {
         let index : number = 0
         for (let i : number = 0; i < this.instanceCount * 3; i++) {
             vertexBuffer[index] = this.bufferData.position[i * 3]
@@ -199,14 +271,82 @@ export class BufferObject {
             if (this.bufferData.uv.length > 0) {
                 vertexBuffer[index + 6] = this.bufferData.uv[i * 2]
                 vertexBuffer[index + 7] = this.bufferData.uv[i * 2 + 1]
-                index += 8
             }
             else {
-                index += 6
+                vertexBuffer[index + 6] = 0.0
+                vertexBuffer[index + 7] = 0.0
             }
+            index += 8
         }
 
-        indexBuffer.set(this.indexData, 0)
+        if (indexBuffer != null) {
+            indexBuffer.set(this.indexData, 0)
+        }
+    }
+
+    updateTriangleData(device : GPUDevice, forceUpdate : boolean = false) {
+        if (this.updated || forceUpdate) {
+            const prevTriangleLength : number = this.triangleDescriptor.size
+            this.updateData()
+
+            if (this.triangleBuffer == null || this.triangleDescriptor.size != prevTriangleLength) {
+                this.triangleBuffer = device.createBuffer(this.triangleDescriptor)
+
+                // delete vertex buffer if it exists
+                if (this.vertexBuffer != null) {
+                    this.vertexBuffer.destroy()
+                    this.vertexBuffer = null!
+                }
+
+                // delete index buffer if it exists
+                if (this.indexBuffer != null) {
+                    this.indexBuffer.destroy()
+                    this.indexBuffer = null!
+                }
+            }
+
+            // does not draw with index buffer (nyi), this is only for raytracing
+            // also, could reduce memory usage with better alignment,
+            // but would require bad uv placements etc.
+            const triangleArrayBuffer : ArrayBuffer = new ArrayBuffer(this.triangleDescriptor.size)
+            const triangleFloat32Array : Float32Array = new Float32Array(triangleArrayBuffer)
+
+            this.fillTriangleBuffer(triangleFloat32Array)
+
+            new Float32Array(this.triangleBuffer.getMappedRange()).set(triangleFloat32Array)
+            this.triangleBuffer.unmap()
+
+            this.updated = false
+        }
+    }
+
+    fillTriangleBuffer(triangleBuffer : Float32Array) {
+        const getIndex = (this.indexDescriptor.size > 0) ?
+            (index: number) => this.indexData[index] : (index: number) => index
+
+        for (let i: number = 0; i < this.instanceCount; i++) {
+            for (let j: number = 0; j < 3; j++) {
+                const vertexIndex: number = getIndex(i * 3 + j)
+                const vertexOffset: number = vertexIndex * 3
+                const uvOffset: number = vertexIndex * 2
+
+                // every 4 is alignment (3, 4 for uv)
+                triangleBuffer[i * 36 + j * 12] = this.bufferData.position[vertexOffset]
+                triangleBuffer[i * 36 + j * 12 + 1] = this.bufferData.position[vertexOffset + 1]
+                triangleBuffer[i * 36 + j * 12 + 2] = this.bufferData.position[vertexOffset + 2]
+                triangleBuffer[i * 36 + j * 12 + 3] = 0.0
+
+                triangleBuffer[i * 36 + j * 12 + 4] = this.bufferData.normal[vertexOffset]
+                triangleBuffer[i * 36 + j * 12 + 5] = this.bufferData.normal[vertexOffset + 1]
+                triangleBuffer[i * 36 + j * 12 + 6] = this.bufferData.normal[vertexOffset + 2]
+                triangleBuffer[i * 36 + j * 12 + 7] = 0.0
+
+                triangleBuffer[i * 36 + j * 12 + 8] = this.bufferData.uv[uvOffset]
+                triangleBuffer[i * 36 + j * 12 + 9] = this.bufferData.uv[uvOffset + 1]
+                triangleBuffer[i * 36 + j * 12 + 10] = 0.0
+                triangleBuffer[i * 36 + j * 12 + 11] = 0.0
+            }
+        }
     }
 
     applyMatrixVertex(matrix : mat4) {
@@ -306,7 +446,7 @@ export class BufferObject {
 
         await this.loadObjData(objPath)
 
-        this.updateData()
+        // this.updateData()
     }
 
     async loadObjData(objPath : string) {
