@@ -54,11 +54,12 @@ renderer.Initialize().then(() => {
 })
 ```
 
-**Version 1.0**
+**Version 1.1**
 
-This is the first version of the library. It is still in development, and there are many
+This is version 1.1 of the library. It is still in development, and there are many
 features that are not yet implemented. Currently, the library supports the following:
 
+Version 1.0:
 - WebGPU renderer
 - Frustum/Parallel view camera
 - Scene
@@ -69,12 +70,18 @@ features that are not yet implemented. Currently, the library supports the follo
 - Texture
 - .obj file loader
 
+Version 1.1 updates:
+- CPU and memory optimizations
+  - model matrices are only updated when necessary
+  - geometry buffers are only updated when necessary and are copied to the GPU on initialization
+  - fixed a bug with group meshes not being rendered correctly
+  - added pipeline caching for each buffer object id and material bind group caching for each material
+- Added initial helper functions on the BufferGeometry class to work with triangles
+
 **Future Versions**
 
 The following features are planned for the next 2.0 version:
 
-- CPU and memory optimizations, for example by not creating new 
-buffers every frame, as currently copying buffers every frame causes CPU bottlenecks when rendering many geometries
 - Ray tracing renderer with compute shaders and ray tracing acceleration structures (BVH)
 - Post-processing filters
 - Shadow mapping for the WebGPU renderer
