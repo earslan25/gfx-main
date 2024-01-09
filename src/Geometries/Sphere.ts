@@ -33,7 +33,7 @@ export class Sphere extends BufferObject {
         this.thetaEnd = thetaEnd
 
         this.makeSphere()
-        this.updateData()
+        // this.updateData()
 
     }
 

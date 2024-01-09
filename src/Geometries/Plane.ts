@@ -24,7 +24,7 @@ export class Plane extends PlaneBasedObject {
 
         this.buildPlane(0, 1, 2, 1, -1, width, height, 0,
                         tessellationWidth, tessellationHeight, 0)
-        this.updateData()
+        // this.updateData()
 
     }
 

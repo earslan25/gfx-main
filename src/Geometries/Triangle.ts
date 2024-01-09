@@ -31,7 +31,7 @@ export class Triangle extends BufferObject {
 
         this.addIndex([0, 1, 2])
 
-        this.updateData()
+        // this.updateData()
 
     }
 }

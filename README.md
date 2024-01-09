@@ -54,7 +54,7 @@ renderer.Initialize().then(() => {
 })
 ```
 
-**Version 1.0.0**
+**Version 1.0**
 
 This is the first version of the library. It is still in development, and there are many
 features that are not yet implemented. Currently, the library supports the following:
@@ -71,7 +71,7 @@ features that are not yet implemented. Currently, the library supports the follo
 
 **Future Versions**
 
-The following features are planned for the next 2.0.0 version:
+The following features are planned for the next 2.0 version:
 
 - CPU and memory optimizations, for example by not creating new 
 buffers every frame, as currently copying buffers every frame causes CPU bottlenecks when rendering many geometries

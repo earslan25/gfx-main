@@ -54,7 +54,7 @@ export class Cube extends PlaneBasedObject {
         this.buildPlane(0, 1, 2, -1, -1, width, height, -depth,
                         tessellationWidth, tessellationHeight, vertexOffset)
 
-        this.updateData()
+        // this.updateData()
 
     }
 
